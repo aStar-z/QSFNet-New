@@ -211,6 +211,7 @@ class QAnet(nn.Module):
         self.up8 = nn.Upsample(scale_factor=8, mode='bilinear', align_corners=True)
         self.up16 = nn.Upsample(scale_factor=16, mode='bilinear', align_corners=True)
 
+    #第二周工作
     # ------------------------- 新增质量评估函数 -------------------------
 
     def calculate_sharpness_quality(self, image):
@@ -242,8 +243,9 @@ class QAnet(nn.Module):
             contrast_scores.append(contrast / 255.0)
         #return torch.tensor(contrast_scores, device=image.device).unsqueeze(1)
         return torch.tensor(contrast_scores, device=image.device, dtype=torch.float32).unsqueeze(1)
+    #以上为第二周工作：质量感知机制调整
 
-    def forward(self, rgb, t, d):
+    def forward(self, rgb, t, d,label):#在可视化验证中新加入了label参数
 
         vdt = torch.cat((rgb, t, d), dim=1)
         #D Branch
@@ -301,6 +303,7 @@ class QAnet(nn.Module):
         x0e_vdt_T = self.up2(x0e_vdt_T)
         x0e_pred_vdt_T = self.final_0_vdt_T(x0e_vdt_T)
 
+        #第二周工作
         # 新增：质量评估
         quality_depth = self.calculate_contrast_quality(d)  # 深度图质量（对比度）
         quality_thermal = self.calculate_sharpness_quality(t)  # 热成像质量（清晰度）
@@ -313,8 +316,60 @@ class QAnet(nn.Module):
         # 动态加权融合
         fused_pred = weights[:, 0].view(-1, 1, 1, 1) * x0e_pred_vdt_D +  weights[:, 1].view(-1, 1, 1, 1) * x0e_pred_vdt_T
 
-        return fused_pred  # 修改返回值为融合后的预测
+        #return fused_pred  # 修改返回值为融合后的预测
         #return x0e_pred_vdt_D, x0e_pred_vdt_T
+        #第二周工作
+
+        #第三周工作 可视化验证
+        # 新增：保存质量评分到CSV文件
+        import pandas as pd
+        import os
+
+        # 获取当前批次的数据索引（假设每个批次是独立的）
+        batch_size = d.size(0)
+        indices = np.arange(batch_size)  # 示例索引
+
+        # 计算质量评分
+        quality_depth = self.calculate_contrast_quality(d)  # (B, 1)
+        quality_thermal = self.calculate_sharpness_quality(t)  # (B, 1)
+
+        # 将数据转换为numpy数组
+        quality_depth_np = quality_depth.cpu().numpy().flatten()
+        quality_thermal_np = quality_thermal.cpu().numpy().flatten()
+        label_np = label.cpu().numpy().flatten()  # 假设label已传入（需修改训练代码）
+
+        # 保存到CSV（按批次追加）
+        df = pd.DataFrame({
+            'Index': indices,
+            'Depth_Quality': quality_depth_np,
+            'Thermal_Quality': quality_thermal_np,
+            'Label_IoU': label_np  # 假设用真值IoU作为质量参考
+        })
+
+        # 确保文件存在时追加，否则新建
+        csv_path = './quality_scores.csv'
+        if not os.path.exists(csv_path):
+            df.to_csv(csv_path, index=False)
+        else:
+            df.to_csv(csv_path, mode='a', header=False, index=False)
+        #第三周工作1：以上内容为质量评分分布可视化
+
+        # 新增：保存权重到CSV
+        df_weights = pd.DataFrame({
+            'Index': indices,
+            'Weight_Depth': weights[:, 0].cpu().numpy().flatten(),
+            'Weight_Thermal': weights[:, 1].cpu().numpy().flatten(),
+            'Scene_Type': ['Case1', 'Case2', 'Case3']  # 需根据实际场景手动标记
+        })
+
+        csv_weights_path = './fusion_weights.csv'
+        if not os.path.exists(csv_weights_path):
+            df_weights.to_csv(csv_weights_path, index=False)
+        else:
+            df_weights.to_csv(csv_weights_path, mode='a', header=False, index=False)
+        #第三周工作2：动态权重可视化
+        return fused_pred
+
 
     def load_pretrained_model(self):
         self.resnet_D.load_state_dict(torch.load('./resnet34-333f7ec4.pth'))

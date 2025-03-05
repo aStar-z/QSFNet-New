@@ -92,7 +92,8 @@ if __name__ == '__main__':
             QA_loss = loss1 + loss2
             '''
             # 修改：QAnet返回融合后的预测
-            fused_pred = qnet(rgb, t, d)
+            # 新增修改（可视化）新增传入label参数
+            fused_pred = qnet(rgb, t, d, label)
 
             # 计算损失（使用融合结果和真值label）
             QA_loss = bce_loss(fused_pred, label)  # 直接使用真值监督
@@ -101,6 +102,27 @@ if __name__ == '__main__':
             QA_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
+            #第三周：融合过程可视化
+            # 在训练循环中保存示例图像
+            if i % 100 == 0:  # 每100个批次保存一次
+                # 选择第一个样本
+                rgb_sample = rgb[0].cpu().numpy().transpose(1, 2, 0)
+                t_sample = t[0].cpu().numpy().squeeze()
+                d_sample = d[0].cpu().numpy().squeeze()
+                label_sample = label[0].cpu().numpy().squeeze()
+                fused_pred_sample = torch.sigmoid(fused_pred[0]).cpu().numpy().squeeze()
+
+                # 保存为图片
+                import cv2
+
+                cv2.imwrite(f'./vis_results/batch_{i}_rgb.png', (rgb_sample * 255).astype(np.uint8))
+                cv2.imwrite(f'./vis_results/batch_{i}_thermal.png', (t_sample * 255).astype(np.uint8))
+                cv2.imwrite(f'./vis_results/batch_{i}_depth.png', (d_sample * 255).astype(np.uint8))
+                cv2.imwrite(f'./vis_results/batch_{i}_label.png', (label_sample * 255).astype(np.uint8))
+                cv2.imwrite(f'./vis_results/batch_{i}_pred.png', (fused_pred_sample * 255).astype(np.uint8))
+            #第三周：保存预测结果
+
             if i % 100 == 0:
                 print('epoch: [%2d/%2d], iter: [%5d/%5d]  ||  loss : %5.4f, lr: %7.6f' % (
                     epochi, epoch, i, iter_num, r_QA_loss / 100, lr,))
