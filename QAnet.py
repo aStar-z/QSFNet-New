@@ -336,7 +336,11 @@ class QAnet(nn.Module):
         # 将数据转换为numpy数组
         quality_depth_np = quality_depth.cpu().numpy().flatten()
         quality_thermal_np = quality_thermal.cpu().numpy().flatten()
-        label_np = label.cpu().numpy().flatten()  # 假设label已传入（需修改训练代码）
+
+        # 修改前（报错：ValueError: All arrays must be of the same length）
+        #label_np = label.cpu().numpy().flatten()  # 错误：展平后长度为 B*C*H*W
+        # 修改后（假设标签为二值掩码，计算每个样本的均值作为简单参考）
+        label_np = label.cpu().numpy().mean(axis=(1, 2, 3)).flatten()  # 形状 (B,)
 
         # 保存到CSV（按批次追加）
         df = pd.DataFrame({
@@ -359,7 +363,7 @@ class QAnet(nn.Module):
             'Index': indices,
             'Weight_Depth': weights[:, 0].cpu().numpy().flatten(),
             'Weight_Thermal': weights[:, 1].cpu().numpy().flatten(),
-            'Scene_Type': ['Case1', 'Case2', 'Case3']  # 需根据实际场景手动标记
+            #'Scene_Type': ['Case1', 'Case2', 'Case3']  # 需根据实际场景手动标记（错误，长度固定为3）
         })
 
         csv_weights_path = './fusion_weights.csv'
