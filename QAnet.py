@@ -334,8 +334,11 @@ class QAnet(nn.Module):
         quality_thermal = self.calculate_sharpness_quality(t)  # (B, 1)
 
         # 将数据转换为numpy数组
-        quality_depth_np = quality_depth.cpu().numpy().flatten()
-        quality_thermal_np = quality_thermal.cpu().numpy().flatten()
+        #quality_depth_np = quality_depth.cpu().numpy().flatten()
+        #quality_thermal_np = quality_thermal.cpu().numpy().flatten()
+        quality_depth_np = quality_depth.detach().cpu().numpy().flatten()
+        quality_thermal_np = quality_thermal.detach().cpu().numpy().flatten()
+        #用于解决：RuntimeError: Can't call numpy() on Tensor that requires grad（以替换）
 
         # 修改前（报错：ValueError: All arrays must be of the same length）
         #label_np = label.cpu().numpy().flatten()  # 错误：展平后长度为 B*C*H*W
@@ -361,8 +364,15 @@ class QAnet(nn.Module):
         # 新增：保存权重到CSV
         df_weights = pd.DataFrame({
             'Index': indices,
+            '''
             'Weight_Depth': weights[:, 0].cpu().numpy().flatten(),
             'Weight_Thermal': weights[:, 1].cpu().numpy().flatten(),
+            '''
+            'Weight_Depth': weights[:, 0].detach().cpu().numpy().flatten(),  # 添加 detach()
+            'Weight_Thermal': weights[:, 1].detach().cpu().numpy().flatten()  # 添加 detach()
+            #错误原因:在保存权重数据到CSV时，weights 张量仍关联梯度计算图，直接调用 .numpy() 导致报错：
+            #RuntimeError: Can't call numpy() on Tensor that requires grad
+
             #'Scene_Type': ['Case1', 'Case2', 'Case3']  # 需根据实际场景手动标记（错误，长度固定为3）
         })
 
