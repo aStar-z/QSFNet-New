@@ -314,7 +314,7 @@ class QAnet(nn.Module):
         weights = self.quality_weight_network(quality_scores)  # 输出：[weight_D, weight_T]
 
         # 动态加权融合
-        fused_pred = weights[:, 0].view(-1, 1, 1, 1) * x0e_pred_vdt_D +  weights[:, 1].view(-1, 1, 1, 1) * x0e_pred_vdt_T
+        #fused_pred = weights[:, 0].view(-1, 1, 1, 1) * x0e_pred_vdt_D +  weights[:, 1].view(-1, 1, 1, 1) * x0e_pred_vdt_T
 
         #return fused_pred  # 修改返回值为融合后的预测
         #return x0e_pred_vdt_D, x0e_pred_vdt_T
@@ -361,13 +361,14 @@ class QAnet(nn.Module):
             df.to_csv(csv_path, mode='a', header=False, index=False)
         #第三周工作1：以上内容为质量评分分布可视化
 
+        '''
         # 新增：保存权重到CSV
         df_weights = pd.DataFrame({
             'Index': indices,
-            '''
+            \'''
             'Weight_Depth': weights[:, 0].cpu().numpy().flatten(),
             'Weight_Thermal': weights[:, 1].cpu().numpy().flatten(),
-            '''
+            \'''
             'Weight_Depth': weights[:, 0].detach().cpu().numpy().flatten(),  # 添加 detach()
             'Weight_Thermal': weights[:, 1].detach().cpu().numpy().flatten()  # 添加 detach()
             #错误原因:在保存权重数据到CSV时，weights 张量仍关联梯度计算图，直接调用 .numpy() 导致报错：
@@ -382,7 +383,29 @@ class QAnet(nn.Module):
         else:
             df_weights.to_csv(csv_weights_path, mode='a', header=False, index=False)
         #第三周工作2：动态权重可视化
+        
         return fused_pred
+        '''
+            # 在返回前计算融合权重（新增代码）
+            # 假设使用质量评分网络计算权重
+
+        # 修改forward函数中的质量评分计算部分
+        #quality_scores = torch.cat([
+        #    x0e_pred_vdt_D.mean(dim=[1, 2, 3]).unsqueeze(1),  # 添加维度 [batch_size, 1]
+        #    x0e_pred_vdt_T.mean(dim=[1, 2, 3]).unsqueeze(1)  # 添加维度 [batch_size, 1]
+        #], dim=1)  # 在dim=1拼接后得到 [batch_size, 2]
+        quality_scores = torch.cat([
+            self.calculate_contrast_quality(d),    # 深度图质量评分
+            self.calculate_sharpness_quality(t)    # 热成像图质量评分
+        ], dim=1)
+        fusion_weights = self.quality_weight_network(quality_scores)
+
+        # 加权融合
+        #fused_pred = fusion_weights[:, 0:1] * x0e_pred_vdt_D + fusion_weights[:, 1:2] * x0e_pred_vdt_T
+        fused_pred = (fusion_weights[:, 0].view(-1, 1, 1, 1) * x0e_pred_vdt_D +
+                      fusion_weights[:, 1].view(-1, 1, 1, 1) * x0e_pred_vdt_T)
+
+        return fused_pred, fusion_weights, x0e_pred_vdt_T, x0e_pred_vdt_D # 修改返回值
 
 
     def load_pretrained_model(self):

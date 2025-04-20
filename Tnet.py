@@ -237,8 +237,11 @@ class Tnet(nn.Module):
         )
 
 
-    def forward(self, rgb, t, d,score1_d, score1_t):       
+    def forward(self, rgb, t, d,score1_d, score1_t):#由于QAnet输出结构变化，导致Tnet向前传参数不匹配
+    #def forward(self, rgb, t, d): # 移除score1_d, score1_t参数
         #Initial Feature Extraction Subnet
+
+
         score_list_t, score_PE = self.swin1(t)
         score_list_rgb, score_PE = self.swin1(rgb)
         score_list_d, score_PE = self.swin1(d)

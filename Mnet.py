@@ -1,6 +1,6 @@
 import torch
 
-
+import timm
 from torch import nn
 import torch.nn.functional as F
 from torch.nn import Conv2d, Parameter, Softmax
@@ -14,7 +14,28 @@ Mnet = Initial Feature Extraction Subnet
 class Mnet(nn.Module):
     def __init__(self):
         super(Mnet, self).__init__()
-        self.swin1 = SwinTransformer(embed_dim=128, depths=[2, 2, 18, 2], num_heads=[4, 8, 16, 32])
+        #self.swin1 = SwinTransformer(embed_dim=128, depths=[2, 2, 18, 2], num_heads=[4, 8, 16, 32])
+        self.backbone = timm.create_model(
+            'convnext_base',
+            pretrained=False,
+            features_only=True,  # 输出多阶段特征图
+            out_indices=(0, 1, 2, 3)  # 输出4个阶段的特征图
+        )
+
+        '''
+        def process_modality(x):
+            feats = self.backbone(x)
+            return [self.channel_adjust[i](f) for i, f in enumerate(feats)]
+        '''
+
+        # 调整通道数以匹配原 Swin 输出 (128, 256, 512, 512)
+        self.channel_adjust = nn.ModuleList([
+            nn.Conv2d(128, 128, 1),  # 调整 Stage 1 输出
+            nn.Conv2d(256, 256, 1),  # 调整 Stage 2 输出
+            nn.Conv2d(512, 512, 1),  # 调整 Stage 3 输出
+            nn.Conv2d(1024, 1024, 1)  # 调整 Stage 4 输出
+        ])
+
         self.ReLU = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
@@ -99,15 +120,38 @@ class Mnet(nn.Module):
         self.up16 = nn.Upsample(scale_factor=16, mode='bilinear', align_corners=True)
 
     def forward(self, rgb, t, d):
-        score_list_t, score_PE = self.swin1(t)
-        score_list_rgb, score_PE = self.swin1(rgb)
-        score_list_d, score_PE = self.swin1(d)
+        #score_list_t, score_PE = self.swin1(t)
+        #score_list_rgb, score_PE = self.swin1(rgb)
+        #score_list_d, score_PE = self.swin1(d)
+        '''
+        # 提取 RGB 特征
+        feats_rgb = self.backbone(rgb)
+        feats_rgb = [self.channel_adjust[i](f) for i, f in enumerate(feats_rgb)]
+
+        # 同理处理深度（d）和热成像（t）模态
+        feats_d = self.backbone(d)
+        feats_d = [self.channel_adjust[i](f) for i, f in enumerate(feats_d)]
+
+        feats_t = self.backbone(t)
+        feats_t = [self.channel_adjust[i](f) for i, f in enumerate(feats_t)]
+        '''
+
+        def process_modality(x):
+            feats = self.backbone(x)
+            return [self.channel_adjust[i](f) for i, f in enumerate(feats)]
+
+        feats_rgb = process_modality(rgb)
+
+        print("RGB特征通道:", [f.shape[1] for f in feats_rgb])  # 应为 [128, 256, 512, 512]
+        feats_d = process_modality(d)
+        feats_t = process_modality(t)
 
         #V Branch
-        x1_v = score_list_rgb[0]
-        x2_v = score_list_rgb[1]
-        x3_v = score_list_rgb[2]
-        x4_v = score_list_rgb[3]
+        x1_v = feats_rgb[0]
+        x2_v = feats_rgb[1]
+        x3_v = feats_rgb[2]
+        x4_v = feats_rgb[3]
+
 
         #First column of MSF modules
         x1_3v = self.MSD1_3v(x3_v,x4_v,x4_v)
@@ -128,10 +172,10 @@ class Mnet(nn.Module):
         x3e_pred = self.up4(x3_1v_pred)
 
         #T branch
-        x1_t = score_list_t[0]
-        x2_t = score_list_t[1]
-        x3_t = score_list_t[2]
-        x4_t = score_list_t[3]
+        x1_t = feats_t[0]
+        x2_t = feats_t[1]
+        x3_t = feats_t[2]
+        x4_t = feats_t[3]
 
         x1_3t = self.MSD1_3t(x3_t, x4_t, x4_t)
         x1_2t = self.MSD1_2t(x2_t, x3_t, x1_3t)
@@ -151,10 +195,10 @@ class Mnet(nn.Module):
         x3e_pred_t = self.up4(x3_1t_pred)
 
         #D branch
-        x1_d = score_list_d[0]
-        x2_d = score_list_d[1]
-        x3_d = score_list_d[2]
-        x4_d = score_list_d[3]
+        x1_d = feats_d[0]
+        x2_d = feats_d[1]
+        x3_d = feats_d[2]
+        x4_d = feats_d[3]
 
         x1_3d = self.MSD1_3d(x3_d, x4_d, x4_d)
         x1_2d = self.MSD1_2d(x2_d, x3_d, x1_3d)
@@ -189,8 +233,14 @@ class Mnet(nn.Module):
 
 
     def load_pretrained_model(self):
-        self.swin1.load_state_dict(torch.load('./swin_base_patch4_window12_384_22k.pth')['model'],strict=False)
-        print('loading pretrained model success!')
+        #self.swin1.load_state_dict(torch.load('./swin_base_patch4_window12_384_22k.pth')['model'],strict=False)
+        #print('loading pretrained model success!')
+        # 加载 ConvNeXt 的 ImageNet-22K 预训练权重
+        state_dict = torch.load('./convnext_base_22k_224.pth')['model']
+        # 兼容性修复：移除"head."前缀（分类头不需要）
+        state_dict = {k.replace("head.", ""): v for k, v in state_dict.items()}
+        self.backbone.load_state_dict(state_dict, strict=False)
+        print('ConvNeXt pretrained weights loaded successfully!')
 
 
 class Conv(nn.Module):

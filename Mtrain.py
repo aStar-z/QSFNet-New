@@ -59,6 +59,12 @@ if __name__ == '__main__':
     for epochi in tqdm(range(1, epoch + 1)):
         prefetcher = DataPrefetcher(loader)
         rgb, t, d, eg, label = prefetcher.next()
+        print(type(t))
+        print(type(d))
+        print(type(rgb))
+        print(rgb.shape)
+        print(t.shape)
+        print(d.shape)
         r_sal_loss = 0
         epoch_ave_loss = 0
         i = 0

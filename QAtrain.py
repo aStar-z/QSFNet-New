@@ -9,7 +9,12 @@ from lib.dataset import Data
 from lib.data_prefetcher import DataPrefetcher
 from torch.nn import functional as F
 import pytorch_iou
+import cv2
 from torch import nn
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.manifold import TSNE
+import seaborn as sns
 
 from QAnet import QAnet
 
@@ -37,6 +42,47 @@ def structure_loss(pred, mask):
     wiou = 1 - (inter + 1)/(union - inter+1)
     return (wbce + wiou).mean()
 
+
+def visualize_fusion_weights(weights_dict, epoch):
+    """动态权重可视化函数"""
+    os.makedirs('./vis_weights', exist_ok=True)
+
+    # 转换为numpy数组
+    depth_weights = np.concatenate([w[:, 0].cpu().numpy() for w in weights_dict.values()])
+    thermal_weights = np.concatenate([w[:, 1].cpu().numpy() for w in weights_dict.values()])
+
+    # 创建画布
+    plt.figure(figsize=(15, 5))
+
+    # 子图1：双权重的分布直方图
+    plt.subplot(131)
+    plt.hist(depth_weights, bins=30, alpha=0.5, label='Depth', color='blue')
+    plt.hist(thermal_weights, bins=30, alpha=0.5, label='Thermal', color='red')
+    plt.xlabel('Weight Value')
+    plt.ylabel('Frequency')
+    plt.title(f'EPOCH {epoch} Weight Distribution')
+    plt.legend()
+
+    # 子图2：权重相关性散点图
+    plt.subplot(132)
+    plt.scatter(depth_weights, thermal_weights, alpha=0.6, c='green')
+    plt.plot([0, 1], [1, 0], 'r--')  # 反比例对角线
+    plt.xlabel('Depth Weight')
+    plt.ylabel('Thermal Weight')
+    plt.title('Cross-modal Weight Correlation')
+
+    # 子图3：时间序列趋势（按样本顺序）
+    plt.subplot(133)
+    plt.plot(depth_weights[:500], 'b-', alpha=0.4, label='Depth')
+    plt.plot(thermal_weights[:500], 'r-', alpha=0.4, label='Thermal')
+    plt.xlabel('Sample Index')
+    plt.ylabel('Weight Value')
+    plt.title('Temporal Variation')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(f'./vis_weights/epoch_{epoch}_weights.png')
+    plt.close()
 
 if __name__ == '__main__':
 
@@ -67,6 +113,10 @@ if __name__ == '__main__':
 
         prefetcher = DataPrefetcher(loader)
         rgb, t, d, eg, label = prefetcher.next()
+
+        # 新增权重收集器
+        weight_collector = []
+
         B, C, H, W = label.shape
         r_QA_loss = 0
         epoch_ave_loss = 0
@@ -93,7 +143,13 @@ if __name__ == '__main__':
             '''
             # 修改：QAnet返回融合后的预测
             # 新增修改（可视化）新增传入label参数
-            fused_pred = qnet(rgb, t, d, label)
+            #fused_pred = qnet(rgb, t, d, label)
+            # 修改网络返回（假设qnet返回权重）
+            fused_pred, fusion_weights, _, _ = qnet(rgb, t, d, label)  # 需要修改QAnet的forward返回值
+
+            # 收集权重（每100个batch）
+            if i % 100 == 0:
+                weight_collector.append(fusion_weights.detach().cpu())
 
             # 计算损失（使用融合结果和真值label）
             QA_loss = bce_loss(fused_pred, label)  # 直接使用真值监督
@@ -103,22 +159,36 @@ if __name__ == '__main__':
             optimizer.step()
             optimizer.zero_grad()
 
+            if len(weight_collector) > 0:
+                weights_dict = {'epoch': torch.cat(weight_collector, dim=0)}
+                visualize_fusion_weights(weights_dict, epochi)
+
             #第三周：融合过程可视化
             # 在训练循环中保存示例图像
-            if i % 100 == 0:  # 每100个批次保存一次
-                # 选择第一个样本
-                rgb_sample = rgb[0].cpu().numpy().transpose(1, 2, 0)
-                t_sample = t[0].cpu().numpy().squeeze()
-                d_sample = d[0].cpu().numpy().squeeze()
-                label_sample = label[0].cpu().numpy().squeeze()
-                fused_pred_sample = torch.sigmoid(fused_pred[0]).cpu().numpy().squeeze()
-
-                # 保存为图片
-                import cv2
-
+            # 修改后的代码段
+            if not os.path.exists('./vis_results'):
+                os.makedirs('./vis_results')
+            if epochi%10==0 and i % 100 == 0:
+                # RGB（三通道）
+                rgb_sample = rgb[0].cpu().numpy().transpose(1, 2, 0)  # (H, W, 3)
                 cv2.imwrite(f'./vis_results/batch_{i}_rgb.png', (rgb_sample * 255).astype(np.uint8))
-                cv2.imwrite(f'./vis_results/batch_{i}_thermal.png', (t_sample * 255).astype(np.uint8))
-                cv2.imwrite(f'./vis_results/batch_{i}_depth.png', (d_sample * 255).astype(np.uint8))
+
+                # 热成像（单通道）
+                t_sample = t[0].cpu().numpy().squeeze()
+                t_single_channel = t_sample.mean(axis=0) if len(t_sample.shape) == 3 else t_sample
+                cv2.imwrite(f'./vis_results/batch_{i}_thermal.png', (t_single_channel * 255).astype(np.uint8))
+
+                # 深度图（单通道）
+                d_sample = d[0].cpu().numpy().squeeze()
+                if len(d_sample.shape) == 3:
+                    d_single_channel = d_sample[0]  # 取第一个通道
+                else:
+                    d_single_channel = d_sample
+                cv2.imwrite(f'./vis_results/batch_{i}_depth.png', (d_single_channel * 255).astype(np.uint8))
+
+                # 标签和预测（单通道）
+                label_sample = label[0].cpu().numpy().squeeze()
+                fused_pred_sample = torch.sigmoid(fused_pred[0]).detach().cpu().numpy().squeeze()
                 cv2.imwrite(f'./vis_results/batch_{i}_label.png', (label_sample * 255).astype(np.uint8))
                 cv2.imwrite(f'./vis_results/batch_{i}_pred.png', (fused_pred_sample * 255).astype(np.uint8))
             #第三周：保存预测结果

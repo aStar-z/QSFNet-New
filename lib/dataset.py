@@ -10,10 +10,13 @@ except:
     import transform
 from torch.utils.data import Dataset
 #BGR
-mean_rgb = np.array([[[0.391*255, 0.363*255, 0.338*255]]])
+#mean_rgb = np.array([[[0.391*255, 0.363*255, 0.338*255]]])
 mean_t =np.array([[[0.170*255,  0.403*255, 0.556*255]]])
 mean_d =np.array([[[0.034*255,  0.034*255, 0.034*255]]])
-std_rgb = np.array([[[0.224 * 255, 0.217 * 255, 0.206 * 255]]])
+#std_rgb = np.array([[[0.224 * 255, 0.217 * 255, 0.206 * 255]]])
+# 修改为 ConvNeXt 的归一化参数
+mean_rgb = np.array([0.485, 0.456, 0.406]) * 255  # 形状 (3,)
+std_rgb = np.array([0.229, 0.224, 0.225]) * 255    # 形状 (3,)
 std_t = np.array([[[0.160 * 255, 0.188 * 255, 0.238 * 255]]])
 std_d = np.array([[[0.007 * 255, 0.007 * 255, 0.007 * 255]]])
 

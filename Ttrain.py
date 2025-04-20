@@ -72,9 +72,10 @@ if __name__ == '__main__':
         while rgb is not None:
             i += 1
             with torch.no_grad():
-                score1_d, score1_t = qnet(rgb, t, d)
+                _,_,score1_d, score1_t = qnet(rgb, t, d,label)
+                #fused_pred, quality_d, quality_t = qnet(rgb, t, d)
             score_eg, score3, score2, score1, score3_t, score2_t, score1_t, score3_d, score2_d, score1_d, score4_out, score3_out, score2_out, score1_out = net(
-                rgb, t, d, score1_d, score1_t)
+                rgb, t, d, score1_d, score1_t)#为配合QAnet的修改，删除后两个参数
 
             losseg_out = bce_loss(score_eg, eg)
 
